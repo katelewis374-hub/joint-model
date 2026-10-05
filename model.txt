@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biomechanical Joint & Attachment Model</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            overflow: hidden;
+            background-color: #0f172a;
+        }
+        canvas {
+            touch-action: none;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .btn-toggle {
+            transition: all 0.2s ease;
+        }
+        .btn-toggle.active-intact {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.5);
+        }
+        .btn-toggle.active-partial {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.5);
+        }
+        .btn-toggle.active-rupture {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.5);
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative text-slate-100 flex flex-col justify-between">
+
+    <!-- Top Header Overlay -->
+    <header class="absolute top-4 left-4 right-4 z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pointer-events-none">
+        <div class="glass-panel px-4 py-2.5 rounded-xl shadow-xl pointer-events-auto flex items-center gap-3">
+            <div class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" id="statusDot"></div>
+            <div>
+                <h1 class="text-sm font-bold text-white tracking-wide">Joint Biomechanics & Tissue Failure</h1>
+                <p id="statusText" class="text-xs text-slate-400">Interactive Structural Attachment & Rupture Simulation</p>
+            </div>
+        </div>
+
+        <!-- Quick Reset & Tip -->
+        <div class="glass-panel px-3 py-2 rounded-xl text-xs text-slate-300 pointer-events-auto flex items-center gap-3 shadow-xl">
+            <span class="hidden md:inline text-slate-400">💡 Drag lower bone or use sliders</span>
+            <button id="resetBtn" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white rounded-lg transition font-medium">
+                Reset Joint
+            </button>
+        </div>
+    </header>
+
+    <!-- Fullscreen Canvas -->
+    <main class="w-full h-full relative">
+        <canvas id="simCanvas" class="w-full h-full cursor-grab active:cursor-grabbing"></canvas>
+    </main>
+
+    <!-- Bottom Floating Control Panel -->
+    <footer class="absolute bottom-4 left-4 right-4 z-10 max-w-4xl mx-auto pointer-events-none">
+        <div class="glass-panel p-4 rounded-2xl shadow-2xl pointer-events-auto space-y-4">
+            
+            <!-- Controls Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                <!-- Active Force Controls -->
+                <div class="space-y-2.5 bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="text-slate-300 flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span> Muscle Contraction
+                        </span>
+                        <span id="muscleVal" class="text-red-400 font-mono">0%</span>
+                    </div>
+                    <input type="range" id="muscleSlider" min="0" max="100" value="0" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500">
+                    
+                    <div class="flex justify-between text-xs font-semibold pt-1">
+                        <span class="text-slate-300 flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-indigo-400"></span> Lateral Shear Force
+                        </span>
+                        <span id="loadVal" class="text-indigo-400 font-mono">0 N</span>
+                    </div>
+                    <input type="range" id="loadSlider" min="-100" max="100" value="0" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500">
+                </div>
+
+                <!-- Tissue Integrity Toggles -->
+                <div class="space-y-2.5 bg-slate-900/50 p-3 rounded-xl border border-slate-800 flex flex-col justify-between">
+                    
+                    <!-- Tendon Buttons -->
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="font-semibold text-amber-400 flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> Tendon
+                        </span>
+                        <div class="flex gap-1">
+                            <button data-type="tendon" data-state="intact" class="btn-toggle active-intact text-[11px] px-2.5 py-1 rounded-md font-medium border border-slate-700">Intact</button>
+                            <button data-type="tendon" data-state="partial" class="btn-toggle text-[11px] px-2.5 py-1 rounded-md font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">Partial</button>
+                            <button data-type="tendon" data-state="rupture" class="btn-toggle text-[11px] px-2.5 py-1 rounded-md font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">Ruptured</button>
+                        </div>
+                    </div>
+
+                    <!-- Ligament Buttons -->
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="font-semibold text-purple-400 flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-purple-400"></span> Ligament
+                        </span>
+                        <div class="flex gap-1">
+                            <button data-type="ligament" data-state="intact" class="btn-toggle active-intact text-[11px] px-2.5 py-1 rounded-md font-medium border border-slate-700">Intact</button>
+                            <button data-type="ligament" data-state="partial" class="btn-toggle text-[11px] px-2.5 py-1 rounded-md font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">Partial</button>
+                            <button data-type="ligament" data-state="rupture" class="btn-toggle text-[11px] px-2.5 py-1 rounded-md font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">Ruptured</button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Descriptive Clinical Feedback Line -->
+            <div id="diagBanner" class="text-xs text-slate-300 bg-slate-950/60 px-3 py-2 rounded-lg border border-slate-800/80 flex items-center justify-between">
+                <span id="diagText" class="truncate"><b>Normal Mechanics:</b> Muscle pulls tendon to articulate bone; ligament maintains hinge socket alignment.</span>
+                <span class="text-[10px] text-slate-500 shrink-0 ml-2">Anatomical 2D Model</span>
+            </div>
+
+        </div>
+    </footer>
+
+    <script>
+        // Setup Canvas & Graphics Context
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI Element References
+        const muscleSlider = document.getElementById('muscleSlider');
+        const loadSlider = document.getElementById('loadSlider');
+        const muscleVal = document.getElementById('muscleVal');
+        const loadVal = document.getElementById('loadVal');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const diagText = document.getElementById('diagText');
+        const resetBtn = document.getElementById('resetBtn');
+
+        // State Machine
+        let tendonState = 'intact'; // 'intact', 'partial', 'rupture'
+        let ligamentState = 'intact'; // 'intact', 'partial', 'rupture'
+        let isDragging = false;
+
+        // Model Geometry & Physical Constants
+        const jointPivot = { x: 0, y: 0 };
+        const upperBone = { width: 50, length: 180 };
+        const lowerBone = { width: 44, length: 190, angle: 0, dispX: 0, dispY: 0 };
+        const muscleState = { contractFraction: 0 };
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            // Center the joint slightly above vertical middle to make room for controls
+            jointPivot.x = canvas.width / 2;
+            jointPivot.y = canvas.height / 2 - 40;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Control Listeners
+        muscleSlider.addEventListener('input', (e) => {
+            muscleState.contractFraction = e.target.value / 100;
+            muscleVal.textContent = `${e.target.value}%`;
+        });
+
+        loadSlider.addEventListener('input', (e) => {
+            loadVal.textContent = `${e.target.value} N`;
+        });
+
+        document.querySelectorAll('button[data-type]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.getAttribute('data-type');
+                const state = btn.getAttribute('data-state');
+
+                if (type === 'tendon') {
+                    tendonState = state;
+                    updateToggleStyle('[data-type="tendon"]', btn, state);
+                } else if (type === 'ligament') {
+                    ligamentState = state;
+                    updateToggleStyle('[data-type="ligament"]', btn, state);
+                }
+                updateClinicalFeedback();
+            });
+        });
+
+        function updateToggleStyle(selector, activeBtn, state) {
+            document.querySelectorAll(selector).forEach(b => {
+                b.className = 'btn-toggle text-[11px] px-2.5 py-1 rounded-md font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700';
+            });
+            activeBtn.className = `btn-toggle active-${state} text-[11px] px-2.5 py-1 rounded-md font-medium border border-slate-700`;
+        }
+
+        resetBtn.addEventListener('click', () => {
+            tendonState = 'intact';
+            ligamentState = 'intact';
+            muscleSlider.value = 0;
+            loadSlider.value = 0;
+            muscleState.contractFraction = 0;
+            muscleVal.textContent = '0%';
+            loadVal.textContent = '0 N';
+
+            updateToggleStyle('[data-type="tendon"]', document.querySelector('[data-type="tendon"][data-state="intact"]'), 'intact');
+            updateToggleStyle('[data-type="ligament"]', document.querySelector('[data-type="ligament"][data-state="intact"]'), 'intact');
+            updateClinicalFeedback();
+        });
+
+        function updateClinicalFeedback() {
+            if (tendonState === 'rupture' && ligamentState === 'rupture') {
+                statusDot.className = "w-3 h-3 rounded-full bg-red-500 animate-ping";
+                statusText.textContent = "Catastrophic Joint Failure";
+                diagText.innerHTML = "<b>Complete Ruptures:</b> Complete loss of muscle power transmission AND joint stability. Bone dislocates easily.";
+            } else if (tendonState === 'rupture') {
+                statusDot.className = "w-3 h-3 rounded-full bg-amber-400";
+                statusText.textContent = "Tendon Rupture (Loss of Function)";
+                diagText.innerHTML = "<b>Tendon Ruptured:</b> Muscle contracts and recoils upward, but cannot transmit force to bone. Zero lower leg movement.";
+            } else if (ligamentState === 'rupture') {
+                statusDot.className = "w-3 h-3 rounded-full bg-purple-400";
+                statusText.textContent = "Ligament Rupture (Joint Instability)";
+                diagText.innerHTML = "<b>Ligament Ruptured:</b> Passive restraint lost. Lateral forces cause lower bone to slip out of the joint socket (Subluxation).";
+            } else if (tendonState === 'partial' || ligamentState === 'partial') {
+                statusDot.className = "w-3 h-3 rounded-full bg-yellow-400";
+                statusText.textContent = "Partial Tissue Tear";
+                diagText.innerHTML = "<b>Partial Tear:</b> Damaged fiber bundles reduce mechanical stiffness and cause joint lag under load.";
+            } else {
+                statusDot.className = "w-3 h-3 rounded-full bg-emerald-400 animate-pulse";
+                statusText.textContent = "Normal Biomechanics";
+                diagText.innerHTML = "<b>Normal Mechanics:</b> Muscle pulls tendon to articulate bone; ligament maintains hinge socket alignment.";
+            }
+        }
+
+        function updatePhysics() {
+            const contraction = muscleState.contractFraction;
+            const shearLoad = parseFloat(loadSlider.value);
+
+            // 1. Target Joint Rotation (Tendon Function)
+            let targetAngle = 0;
+            if (tendonState === 'intact') {
+                targetAngle = contraction * (Math.PI * 0.42); // ~75 degrees flex
+            } else if (tendonState === 'partial') {
+                targetAngle = contraction * (Math.PI * 0.30); // Lag / reduced pull
+            } else if (tendonState === 'rupture') {
+                targetAngle = 0; // Completely uncoupled
+            }
+
+            // Smooth spring rotation
+            lowerBone.angle += (targetAngle - lowerBone.angle) * 0.12;
+
+            // 2. Target Displacement / Subluxation (Ligament Function)
+            let targetDispX = 0;
+            let targetDispY = 0;
+
+            if (ligamentState === 'intact') {
+                targetDispX = shearLoad * 0.04;
+                targetDispY = Math.abs(shearLoad) * 0.01;
+            } else if (ligamentState === 'partial') {
+                targetDispX = shearLoad * 0.22;
+                targetDispY = Math.abs(shearLoad) * 0.08;
+            } else if (ligamentState === 'rupture') {
+                targetDispX = shearLoad * 0.55;
+                targetDispY = Math.abs(shearLoad) * 0.2 + (contraction > 0 && tendonState === 'intact' ? 12 : 0);
+            }
+
+            lowerBone.dispX += (targetDispX - lowerBone.dispX) * 0.15;
+            lowerBone.dispY += (targetDispY - lowerBone.dispY) * 0.15;
+        }
+
+        // Helper point rotator
+        function rotatePoint(pt, rad, center) {
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            return {
+                x: center.x + (pt.x * cos - pt.y * sin),
+                y: center.y + (pt.x * sin + pt.y * cos)
+            };
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const jX = jointPivot.x;
+            const jY = jointPivot.y;
+
+            // Compute Key Dynamic Attachment Anchors
+            // 1. Upper Bone Muscle Origin (Fixed onto Femur Shaft)
+            const muscleOrigin = { x: jX - 25, y: jY - 140 };
+
+            // 2. Upper Bone Ligament Origin (Fixed onto Lateral Condyle)
+            const ligUpperAnchor = { x: jX + 22, y: jY - 12 };
+
+            // 3. Lower Bone Dynamic Position (Includes joint dislocation)
+            const lowerCenter = {
+                x: jX + lowerBone.dispX,
+                y: jY + lowerBone.dispY
+            };
+
+            // 4. Lower Bone Insertion Points (Rotated with lower bone)
+            const tendonTuberosityRel = { x: -22, y: 45 }; // Tibial tuberosity bump
+            const ligLowerAnchorRel = { x: 22, y: 15 };    // Tibial plateau anchor
+
+            const tendonInsertion = rotatePoint(tendonTuberosityRel, lowerBone.angle, lowerCenter);
+            const ligLowerAnchor = rotatePoint(ligLowerAnchorRel, lowerBone.angle, lowerCenter);
+
+            // DRAW ORDER: Background elements -> Bones -> Muscle/Tendon/Ligaments -> UI Labels
+            
+            // Draw Socket Joint Guide Line
+            drawJointSocketGuide(jX, jY, lowerCenter);
+
+            // Draw Upper Bone (Femur) & Lower Bone (Tibia)
+            drawBones(jX, jY, lowerCenter, lowerBone.angle);
+
+            // Calculate Continuous Muscle-Tendon Junction
+            // When muscle contracts, belly shortens toward muscleOrigin.
+            const fullSpanVector = { x: tendonInsertion.x - muscleOrigin.x, y: tendonInsertion.y - muscleOrigin.y };
+            const fullSpanDist = Math.hypot(fullSpanVector.x, fullSpanVector.y);
+            const spanAngle = Math.atan2(fullSpanVector.y, fullSpanVector.x);
+
+            // Muscle belly length shrinks with contraction
+            const muscleBellyLength = Math.max(50, 95 - muscleState.contractFraction * 30);
+            
+            // Calculate exact junction point where Muscle ends and Tendon starts
+            let myJunction;
+            if (tendonState !== 'rupture') {
+                myJunction = {
+                    x: muscleOrigin.x + Math.cos(spanAngle) * muscleBellyLength,
+                    y: muscleOrigin.y + Math.sin(spanAngle) * muscleBellyLength
+                };
+            } else {
+                // If ruptured, muscle contracts freely and pulls the proximal tendon stump UP
+                const recoilLen = muscleBellyLength * 0.8;
+                myJunction = {
+                    x: muscleOrigin.x + Math.cos(spanAngle) * recoilLen,
+                    y: muscleOrigin.y + Math.sin(spanAngle) * recoilLen
+                };
+            }
+
+            // Draw Muscle Body (Attached directly to muscleOrigin)
+            drawMuscleBelly(muscleOrigin, myJunction, muscleState.contractFraction);
+
+            // Draw Tendon (Attached continuously from myJunction to tendonInsertion)
+            drawTendonStructure(myJunction, tendonInsertion, tendonState, spanAngle);
+
+            // Draw Ligament (Spanning explicitly from ligUpperAnchor to ligLowerAnchor)
+            drawLigamentStructure(ligUpperAnchor, ligLowerAnchor, ligamentState);
+
+            // Render Crisp Labels & Structural Pin Markers
+            drawLabelsAndPins(muscleOrigin, myJunction, tendonInsertion, ligUpperAnchor, ligLowerAnchor);
+        }
+
+        function drawJointSocketGuide(jX, jY, lowerCenter) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+
+            // Socket Outline
+            ctx.beginPath();
+            ctx.arc(jX, jY, 26, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Displacement line if dislocated
+            const dist = Math.hypot(lowerCenter.x - jX, lowerCenter.y - jY);
+            if (dist > 6) {
+                ctx.strokeStyle = '#ef4444';
+                ctx.setLineDash([]);
+                ctx.beginPath();
+                ctx.moveTo(jX, jY);
+                ctx.lineTo(lowerCenter.x, lowerCenter.y);
+                ctx.stroke();
+
+                ctx.fillStyle = '#ef4444';
+                ctx.font = '600 10px Inter, sans-serif';
+                ctx.fillText('JOINT DISLOCATION', lowerCenter.x + 15, lowerCenter.y + 4);
+            }
+
+            ctx.restore();
+        }
+
+        function drawBones(jX, jY, lowerCenter, angle) {
+            ctx.save();
+            ctx.fillStyle = '#e2e8f0';
+            ctx.strokeStyle = '#94a3b8';
+            ctx.lineWidth = 3;
+
+            // --- 1. Upper Bone (Femur) ---
+            const uw = upperBone.width;
+            const ul = upperBone.length;
+
+            // Shaft
+            ctx.beginPath();
+            ctx.roundRect(jX - uw/2, jY - ul, uw, ul - 15, [12, 12, 0, 0]);
+            ctx.fill();
+            ctx.stroke();
+
+            // Condyles at Joint Head
+            ctx.beginPath();
+            ctx.arc(jX - 14, jY - 10, 20, 0, Math.PI * 2);
+            ctx.arc(jX + 14, jY - 10, 20, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Bone Texture Line
+            ctx.fillStyle = '#cbd5e1';
+            ctx.font = '700 11px Inter, sans-serif';
+            ctx.fillText('FEMUR', jX - 18, jY - ul + 25);
+
+            // --- 2. Lower Bone (Tibia) ---
+            ctx.translate(lowerCenter.x, lowerCenter.y);
+            ctx.rotate(angle);
+
+            const lw = lowerBone.width;
+            const ll = lowerBone.length;
+
+            // Tibial Plateau / Top Head
+            ctx.beginPath();
+            ctx.ellipse(0, 8, lw/2 + 8, 14, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Tibial Tuberosity (Bump for tendon attachment)
+            ctx.beginPath();
+            ctx.arc(-lw/2 - 3, 45, 9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Main Shaft
+            ctx.beginPath();
+            ctx.roundRect(-lw/2, 12, lw, ll, [0, 0, 12, 12]);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillText('TIBIA', -16, 110);
+
+            ctx.restore();
+        }
+
+        function drawMuscleBelly(origin, junction, contraction) {
+            ctx.save();
+
+            const dx = junction.x - origin.x;
+            const dy = junction.y - origin.y;
+            const dist = Math.hypot(dx, dy);
+            const angle = Math.atan2(dy, dx);
+
+            // Muscle width expands on contraction
+            const width = 34 + contraction * 14;
+
+            ctx.translate(origin.x, origin.y);
+            ctx.rotate(angle);
+
+            // Linear Gradient for muscle body
+            const grad = ctx.createLinearGradient(0, -width/2, 0, width/2);
+            grad.addColorStop(0, '#dc2626');
+            grad.addColorStop(0.5, '#ef4444');
+            grad.addColorStop(1, '#b91c1c');
+
+            ctx.fillStyle = grad;
+            ctx.strokeStyle = '#991b1b';
+            ctx.lineWidth = 2;
+
+            // Muscle Fusiform Shape
+            ctx.beginPath();
+            ctx.moveTo(0, 0); // Directly attached at origin
+            ctx.quadraticCurveTo(dist * 0.5, -width / 2, dist, -6);
+            ctx.lineTo(dist, 6);
+            ctx.quadraticCurveTo(dist * 0.5, width / 2, 0, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Striation details
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1.5;
+            for (let i = 12; i < dist - 8; i += 10) {
+                ctx.beginPath();
+                ctx.moveTo(i, -width / 3.5);
+                ctx.lineTo(i, width / 3.5);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        function drawTendonStructure(start, end, state, angle) {
+            ctx.save();
+
+            const dist = Math.hypot(end.x - start.x, end.y - start.y);
+
+            if (state === 'intact') {
+                // Continuous fibrous bundle from start to end
+                drawFiberBand(start, end, 12, '#f59e0b', '#d97706');
+            } else if (state === 'partial') {
+                // Frayed band with central slack
+                drawFiberBand(start, end, 12, '#f59e0b', '#d97706', true);
+            } else if (state === 'rupture') {
+                // Snapped Tendon: Recoiled proximal stump & anchored distal stump
+                const proximalEnd = {
+                    x: start.x + Math.cos(angle) * 18,
+                    y: start.y + Math.sin(angle) * 18
+                };
+
+                const distalStart = {
+                    x: end.x - Math.cos(angle) * 25,
+                    y: end.y - Math.sin(angle) * 25
+                };
+
+                // Draw Recoiled Proximal Stump (Attached to Muscle Junction)
+                drawFrayedEnd(start, proximalEnd, 12, '#f59e0b', '#d97706');
+
+                // Draw Distal Stump (Firmly attached to Tibial Tuberosity)
+                drawFrayedEnd(end, distalStart, 12, '#f59e0b', '#d97706');
+
+                // Snap indicator text
+                ctx.fillStyle = '#ef4444';
+                ctx.font = '700 11px Inter, sans-serif';
+                ctx.fillText('⚡ TENDON RUPTURED', (proximalEnd.x + distalStart.x)/2 - 50, (proximalEnd.y + distalStart.y)/2);
+            }
+
+            ctx.restore();
+        }
+
+        function drawLigamentStructure(start, end, state) {
+            ctx.save();
+
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const angle = Math.atan2(dy, dx);
+            const dist = Math.hypot(dx, dy);
+
+            if (state === 'intact') {
+                drawFiberBand(start, end, 10, '#c084fc', '#7e22ce');
+            } else if (state === 'partial') {
+                drawFiberBand(start, end, 11, '#c084fc', '#7e22ce', true);
+            } else if (state === 'rupture') {
+                const stump1 = {
+                    x: start.x + Math.cos(angle) * (dist * 0.35),
+                    y: start.y + Math.sin(angle) * (dist * 0.35)
+                };
+                const stump2 = {
+                    x: end.x - Math.cos(angle) * (dist * 0.35),
+                    y: end.y - Math.sin(angle) * (dist * 0.35)
+                };
+
+                drawFrayedEnd(start, stump1, 10, '#c084fc', '#7e22ce');
+                drawFrayedEnd(end, stump2, 10, '#c084fc', '#7e22ce');
+
+                ctx.fillStyle = '#c084fc';
+                ctx.font = '700 10px Inter, sans-serif';
+                ctx.fillText('❌ LIGAMENT TORN', (start.x + end.x)/2 + 10, (start.y + end.y)/2);
+            }
+
+            ctx.restore();
+        }
+
+        function drawFiberBand(p1, p2, width, color, strokeColor, frayed = false) {
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const dist = Math.hypot(dx, dy);
+            const angle = Math.atan2(dy, dx);
+
+            ctx.save();
+            ctx.translate(p1.x, p1.y);
+            ctx.rotate(angle);
+
+            ctx.fillStyle = color;
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 1.5;
+
+            ctx.beginPath();
+            if (!frayed) {
+                ctx.roundRect(0, -width/2, dist, width, [3]);
+            } else {
+                ctx.moveTo(0, -width/2);
+                ctx.quadraticCurveTo(dist/2, -width/2 - 5, dist, -width/2);
+                ctx.lineTo(dist, width/2);
+                ctx.quadraticCurveTo(dist/2, width/2 + 5, 0, width/2);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            // Longitudinal fiber lines
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(2, -width/4); ctx.lineTo(dist - 2, -width/4);
+            ctx.moveTo(2, width/4);  ctx.lineTo(dist - 2, width/4);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawFrayedEnd(p1, p2, width, color, strokeColor) {
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const dist = Math.hypot(dx, dy);
+            const angle = Math.atan2(dy, dx);
+
+            ctx.save();
+            ctx.translate(p1.x, p1.y);
+            ctx.rotate(angle);
+
+            ctx.fillStyle = color;
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 1.5;
+
+            ctx.beginPath();
+            ctx.moveTo(0, -width/2);
+            ctx.lineTo(dist - 4, -width/2);
+            ctx.lineTo(dist, -width/4);
+            ctx.lineTo(dist - 6, 0);
+            ctx.lineTo(dist + 2, width/4);
+            ctx.lineTo(dist - 4, width/2);
+            ctx.lineTo(0, width/2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawLabelsAndPins(mOrigin, junction, tInsertion, ligUpper, ligLower) {
+            ctx.save();
+            ctx.font = '600 11px Inter, sans-serif';
+
+            // Explicit Anchor Pin Dots
+            drawPin(mOrigin.x, mOrigin.y, '#ef4444', 'Muscle Origin');
+            drawPin(tInsertion.x, tInsertion.y, '#f59e0b', 'Tendon Insertion');
+            drawPin(ligUpper.x, ligUpper.y, '#c084fc', 'Ligament Condyle Anchor');
+            drawPin(ligLower.x, ligLower.y, '#c084fc', 'Ligament Plateau Anchor');
+
+            ctx.restore();
+        }
+
+        function drawPin(x, y, color, label) {
+            ctx.fillStyle = color;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        // Pointer Interaction
+        canvas.addEventListener('pointerdown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseY = e.clientY - rect.top;
+
+            // Drag lower bone directly
+            if (mouseY > jointPivot.y) {
+                isDragging = true;
+            }
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (!isDragging) return;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+
+            const deltaX = mouseX - jointPivot.x;
+            const clampedVal = Math.max(-100, Math.min(100, deltaX * 1.2));
+
+            loadSlider.value = Math.round(clampedVal);
+            loadVal.textContent = `${Math.round(clampedVal)} N`;
+        });
+
+        window.addEventListener('pointerup', () => {
+            isDragging = false;
+        });
+
+        // Main Physics Loop
+        function animate() {
+            updatePhysics();
+            draw();
+            requestAnimationFrame(animate);
+        }
+
+        window.onload = function() {
+            updateClinicalFeedback();
+            animate();
+        };
+    </script>
+</body>
+</html>
